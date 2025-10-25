@@ -1,0 +1,205 @@
+# AgentBox v3.0 - Supabase Configuration
+# Phase 1: Foundation & Test Infrastructure
+# Based on PRD v3.0 specifications
+
+project_id = "agentbox-v3"
+
+[api]
+port = 54321
+schemas = ["public", "storage", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+# Database configuration
+[db.pooler]
+enabled = false
+port = 54329
+pool_mode = "transaction"
+default_pool_size = 20
+max_client_conn = 100
+
+[realtime]
+enabled = true
+ip_version = "ipv4"
+
+# Real-time streaming configuration (critical for PRD transparency requirement)
+[realtime.tenants.realtime]
+name = "realtime"
+db_host = "localhost"
+db_port = 54322
+db_name = "postgres"
+db_user = "supabase_realtime_admin"
+db_password = "postgres"
+db_ssl = false
+max_connections = 100
+max_channels_per_client = 100
+max_joins_per_second = 100
+max_events_per_second = 10000
+
+[studio]
+enabled = true
+port = 54323
+api_url = "http://127.0.0.1:54321"
+openapiurl = "/rest/v1/"
+
+# Storage for file uploads
+[storage]
+enabled = true
+image_transformation = {
+  enabled = true
+}
+file_size_limit = "50MiB"
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://127.0.0.1:3000"]
+jwt_expiry = 86400
+enable_signup = true
+enable_confirmations = false
+enable_manual_linking = false
+
+# Email configuration
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = false
+
+[auth.sms]
+enable_signup = false
+enable_confirmations = false
+test_otp = "123456"
+
+# Auth providers
+[auth.external.apple]
+enabled = false
+client_id = ""
+secret = ""
+
+[auth.external.azure]
+enabled = false
+client_id = ""
+secret = ""
+url = ""
+
+[auth.external.bitbucket]
+enabled = false
+client_id = ""
+secret = ""
+
+[auth.external.discord]
+enabled = false
+client_id = ""
+secret = ""
+
+[auth.external.facebook]
+enabled = false
+client_id = ""
+secret = ""
+
+[auth.external.github]
+enabled = true
+client_id = "env(GITHUB_CLIENT_ID)"
+secret = "env(GITHUB_CLIENT_SECRET)"
+redirect_uri = "http://localhost:54321/auth/v1/callback"
+
+[auth.external.gitlab]
+enabled = false
+client_id = ""
+secret = ""
+url = ""
+
+[auth.external.google]
+enabled = true
+client_id = "env(GOOGLE_CLIENT_ID)"
+secret = "env(GOOGLE_CLIENT_SECRET)"
+redirect_uri = "http://localhost:54321/auth/v1/callback"
+
+[auth.external.keycloak]
+enabled = false
+client_id = ""
+secret = ""
+url = ""
+
+[auth.external.linkedin]
+enabled = false
+client_id = ""
+secret = ""
+
+[auth.external.notion]
+enabled = false
+client_id = ""
+secret = ""
+
+[auth.external.twitch]
+enabled = false
+client_id = ""
+secret = ""
+
+[auth.external.twitter]
+enabled = false
+client_id = ""
+secret = ""
+
+[auth.external.slack]
+enabled = false
+client_id = ""
+secret = ""
+
+[auth.external.spotify]
+enabled = false
+client_id = ""
+secret = ""
+
+[auth.external.workos]
+enabled = false
+client_id = ""
+secret = ""
+url = ""
+
+[auth.external.zoom]
+enabled = false
+client_id = ""
+secret = ""
+
+# Edge Functions configuration
+[functions]
+timeout_sec = 10
+import_map = "./functions/import_map.json"
+
+# Analytics
+[analytics]
+enabled = false
+port = 54327
+vector_port = 54328
+gcp_project_id = ""
+gcp_project_number = ""
+gcp_jwt_path = "supabase/gcp.json"
+
+# Logging
+[logging]
+level = "info"
+
+[logging.vector]
+image = "timberio/vector:0.28.1-alpine"
+
+# Local development configuration
+[local_development]
+enabled = true
+api_url = "http://127.0.0.1:54321"
+db_url = "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+
+# Environment-specific overrides
+[environments.production]
+api_url = "https://your-project.supabase.co"
+db_url = "postgresql://postgres:[YOUR-PASSWORD]@db.your-project.supabase.co:5432/postgres"
+realtime_url = "wss://your-project.supabase.co/realtime/v1"
+
+[environments.staging]
+api_url = "https://staging-project.supabase.co"
+db_url = "postgresql://postgres:[YOUR-PASSWORD]@db.staging-project.supabase.co:5432/postgres"
+realtime_url = "wss://staging-project.supabase.co/realtime/v1"
