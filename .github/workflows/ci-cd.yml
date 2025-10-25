@@ -1,0 +1,314 @@
+# AgentBox CI/CD Pipeline
+# Phase 1: Foundation & Test Infrastructure
+# Based on PRD v3.0 Section 8.4
+
+name: Test & Deploy
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.11'
+  
+jobs:
+  # ===========================================
+  # BACKEND TESTING (Mandatory)
+  # ===========================================
+  test-backend:
+    name: 🧪 Backend Tests (80% Coverage Required)
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: agentbox_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: 📦 Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest-html  # For HTML reports
+      
+      - name: 🧪 Run Unit Tests (60% of test suite)
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agentbox_test
+        run: |
+          pytest tests/unit/ -v \
+            --cov=agent/ \
+            --cov-report=xml \
+            --cov-report=html \
+            --junitxml=test-results-unit.xml \
+            --html=unit-test-report.html
+      
+      - name: 🔗 Run Integration Tests (30% of test suite)
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agentbox_test
+          E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+        run: |
+          pytest tests/integration/ -v \
+            --cov=agent/ --cov-append \
+            --cov-report=xml \
+            --junitxml=test-results-integration.xml
+      
+      - name: 🛡️ Run Security Tests
+        run: |
+          pytest tests/security/ -v \
+            --cov=agent/ --cov-append \
+            --cov-report=xml \
+            --junitxml=test-results-security.xml
+      
+      - name: ⚡ Run Performance Tests
+        run: |
+          pytest tests/performance/ -v \
+            --cov=agent/ --cov-append \
+            --cov-report=xml \
+            --junitxml=test-results-performance.xml
+      
+      - name: 📊 Check Coverage (MANDATORY 80%)
+        run: |
+          coverage report --show-missing
+          coverage xml
+          # FAIL BUILD if coverage < 80%
+          coverage report --fail-under=80
+      
+      - name: 🔍 Static Code Analysis
+        run: |
+          flake8 agent/ --max-line-length=88 --extend-ignore=E203
+          mypy agent/ --ignore-missing-imports
+          bandit -r agent/ -f json -o bandit-report.json
+      
+      - name: 📤 Upload Coverage Reports
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: true
+      
+      - name: 📋 Upload Test Results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: backend-test-results
+          path: |
+            test-results-*.xml
+            unit-test-report.html
+            coverage.xml
+            bandit-report.json
+  
+  # ===========================================
+  # FRONTEND TESTING (Mandatory)
+  # ===========================================
+  test-frontend:
+    name: ⚛️ Frontend Tests (80% Coverage Required)
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 📦 Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+      
+      - name: 📦 Install dependencies
+        working-directory: ./frontend
+        run: npm ci
+      
+      - name: 🔍 Type checking
+        working-directory: ./frontend
+        run: npm run type-check
+      
+      - name: 🧹 Linting
+        working-directory: ./frontend
+        run: npm run lint
+      
+      - name: 🧪 Unit & Integration Tests
+        working-directory: ./frontend
+        run: npm run test:coverage
+        env:
+          CI: true
+      
+      - name: 📊 Check Coverage (MANDATORY 80%)
+        working-directory: ./frontend
+        run: |
+          # Fail if coverage below 80%
+          npm run test:coverage -- --coverageThreshold='{
+            "global": {
+              "branches": 80,
+              "functions": 80,
+              "lines": 80,
+              "statements": 80
+            }
+          }'
+      
+      - name: 🏗️ Build application
+        working-directory: ./frontend
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      
+      - name: 📤 Upload Frontend Coverage
+        uses: codecov/codecov-action@v3
+        with:
+          directory: ./frontend/coverage
+          flags: frontend
+          fail_ci_if_error: true
+  
+  # ===========================================
+  # E2E TESTING (10% of test suite)
+  # ===========================================
+  test-e2e:
+    name: 🎭 End-to-End Tests
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend]
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 📦 Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+      
+      - name: 📦 Install dependencies
+        working-directory: ./frontend
+        run: npm ci
+      
+      - name: 📦 Install Playwright
+        working-directory: ./frontend
+        run: npx playwright install --with-deps
+      
+      - name: 🏗️ Build application
+        working-directory: ./frontend
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      
+      - name: 🎭 Run Playwright tests
+        working-directory: ./frontend
+        run: npx playwright test
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:3000
+      
+      - name: 📤 Upload Playwright report
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 30
+  
+  # ===========================================
+  # DEPLOYMENT (Only after ALL tests pass)
+  # ===========================================
+  deploy-staging:
+    name: 🚀 Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend, test-e2e]
+    if: github.ref == 'refs/heads/develop'
+    
+    environment:
+      name: staging
+      url: https://agentbox-staging.vercel.app
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🚀 Deploy Frontend to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          working-directory: ./frontend
+          scope: ${{ secrets.VERCEL_ORG_ID }}
+      
+      - name: 🗄️ Deploy Supabase Functions
+        run: |
+          npm install -g @supabase/cli
+          supabase login --token ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          supabase functions deploy --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        working-directory: ./supabase
+  
+  deploy-production:
+    name: 🌟 Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend, test-e2e]
+    if: github.ref == 'refs/heads/main'
+    
+    environment:
+      name: production
+      url: https://agentbox.dev
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🚀 Deploy Frontend to Vercel (Production)
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: '--prod'
+          working-directory: ./frontend
+          scope: ${{ secrets.VERCEL_ORG_ID }}
+      
+      - name: 🗄️ Deploy Supabase Functions (Production)
+        run: |
+          npm install -g @supabase/cli
+          supabase login --token ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          supabase functions deploy --project-ref ${{ secrets.SUPABASE_PROD_PROJECT_REF }}
+        working-directory: ./supabase
+  
+  # ===========================================
+  # NOTIFICATIONS & REPORTING
+  # ===========================================
+  notify-results:
+    name: 📢 Notify Results
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend, test-e2e]
+    if: always()
+    
+    steps:
+      - name: 📊 Test Results Summary
+        run: |
+          echo "## 🧪 Test Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Backend Tests: ${{ needs.test-backend.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Frontend Tests: ${{ needs.test-frontend.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- E2E Tests: ${{ needs.test-e2e.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Coverage Requirements**: 80% minimum (as per PRD)" >> $GITHUB_STEP_SUMMARY
+          echo "**Test Categories**: Unit (60%), Integration (30%), E2E (10%)" >> $GITHUB_STEP_SUMMARY
